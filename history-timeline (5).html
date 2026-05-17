@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timeline</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --line: #d8d5cf;
+  --text: #111111;
+  --muted: #8a8780;
+  --border: #e4e1db;
+  --shadow: 0 2px 16px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.06);
+  --blue: #1a2f5e;
+  --purple: #3d1f6e;
+  --bar-h: 50px;
+  --tab-h: 42px;
+}
+
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+
+/* ── TOP BAR ── */
+#bar {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--bar-h);
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 16px; gap: 8px; z-index: 500;
+  background: rgba(247,246,243,0.95); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.btn {
+  font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.04em;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.btn:hover { color: var(--text); border-color: #bbb; }
+.btn.primary { background: var(--text); color: #fff; border-color: var(--text); }
+.btn.primary:hover { opacity: 0.82; }
+.btn.danger { color: #c0392b; border-color: #e8c4c0; }
+.btn.danger:hover { background: #c0392b; color: #fff; border-color: #c0392b; }
+
+/* ── WORKSHEET TABS ── */
+#tabs-bar {
+  position: fixed; top: var(--bar-h); left: 0; right: 0; height: var(--tab-h);
+  display: flex; align-items: center; gap: 0;
+  padding: 0 16px; z-index: 490;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
+}
+#tabs-bar::-webkit-scrollbar { height: 0; }
+
+.ws-tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; height: 32px; border-radius: 7px;
+  font-family: 'DM Mono', monospace; font-size: 0.68rem; letter-spacing: 0.03em;
+  cursor: pointer; border: 1.5px solid transparent;
+  white-space: nowrap; transition: all 0.15s; margin-right: 4px;
+  user-select: none;
+}
+.ws-tab .ws-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.ws-tab .ws-name { color: var(--muted); }
+.ws-tab.active { background: var(--surface); border-color: var(--border); }
+.ws-tab.active .ws-name { color: var(--text); font-weight: 500; }
+
+#tab-add {
+  font-family: 'DM Mono', monospace; font-size: 0.8rem;
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px dashed var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0; margin-left: 2px;
+}
+#tab-add:hover { color: var(--text); border-color: #aaa; }
+
+/* ── VIEWPORT ── */
+#vp {
+  position: fixed;
+  top: calc(var(--bar-h) + var(--tab-h));
+  bottom: 0; left: 0; right: 0;
+  overflow: hidden; cursor: grab; user-select: none;
+}
+#vp:active { cursor: grabbing; }
+
+/* ── WORLD ── */
+#world { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
+
+/* ── TIMELINE LINE ── */
+#tl { position: absolute; top: 50%; left: 0; height: 2px; background: var(--line); transform: translateY(-1px); pointer-events: none; }
+
+/* ── YEAR MARKS ── */
+.ym { position: absolute; top: 50%; display: flex; flex-direction: column; align-items: center; pointer-events: none; user-select: none; transform: translateX(-50%); }
+.ym-tick { width: 1px; height: 10px; background: var(--line); margin-top: -5px; }
+.ym-lbl { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-top: 6px; letter-spacing: 0.04em; }
+
+/* ── BUBBLE (collapsed) ── */
+.bubble {
+  position: absolute; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px; height: 80px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 20;
+  box-shadow: var(--shadow);
+  transition: transform 0.25s, box-shadow 0.2s, left 0.3s;
+  overflow: hidden;
+}
+.bubble:hover:not(.open) { transform: translate(-50%, -50%) scale(1.07); box-shadow: var(--shadow-lg); }
+.bubble.type-year  { background: var(--blue);   border-color: var(--blue); }
+.bubble.type-month { background: var(--purple);  border-color: var(--purple); }
+.bubble.type-day   { background: var(--surface); border-color: var(--border); }
+
+.b-date-mini { font-family: 'DM Mono', monospace; font-size: 0.62rem; line-height: 1.3; font-weight: 500; text-align: center; padding: 5px; pointer-events: none; }
+.type-year .b-date-mini, .type-month .b-date-mini { color: #fff; }
+.type-day  .b-date-mini { color: var(--text); }
+
+/* tint ring from worksheet colour */
+.bubble.ws-tinted { border-width: 3px; }
+
+/* ── BUBBLE (open / expanded) ── */
+.bubble.open {
+  width: 300px; height: auto;
+  border-radius: 16px;
+  background: var(--surface) !important;
+  border-color: var(--text) !important; border-width: 1.5px !important;
+  transform: translate(-50%, -50%);
+  cursor: default; align-items: flex-start; flex-direction: column;
+  padding: 18px 20px 14px; overflow: visible;
+  box-shadow: var(--shadow-lg); z-index: 30;
+}
+.bubble.open:hover { transform: translate(-50%, -50%); }
+.bubble.open .b-date-mini { color: var(--muted) !important; font-size: 0.62rem; margin-bottom: 5px; text-align: left; padding: 0; }
+
+.b-content { display: none; width: 100%; }
+.bubble.open .b-content { display: block; }
+
+.b-ws-stripe { height: 3px; border-radius: 2px; margin-bottom: 10px; width: 100%; }
+
+.b-cat { display: inline-block; font-family: 'DM Mono', monospace; font-size: 0.56rem; letter-spacing: 0.07em; text-transform: uppercase; padding: 2px 9px; border-radius: 4px; margin-bottom: 8px; }
+.cat-war      { background:#fdf0ee; color:#c0392b; }
+.cat-politics { background:#eef3fc; color:#1a5fa8; }
+.cat-culture  { background:#edfbf2; color:#1e8449; }
+.cat-science  { background:#f4eeff; color:#7d3c98; }
+.cat-other    { background:#fefaee; color:#a0720d; }
+
+.b-title { font-size: 1.05rem; font-weight: 500; line-height: 1.3; margin-bottom: 9px; }
+.b-img   { width: 100%; height: 120px; object-fit: cover; border-radius: 9px; margin-bottom: 9px; display: block; }
+.b-desc  { font-size: 0.8rem; color: var(--muted); line-height: 1.65; margin-bottom: 11px; }
+
+.b-actions { display: flex; gap: 6px; }
+.b-act { font-family: 'DM Mono', monospace; font-size: 0.6rem; padding: 4px 11px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; transition: all 0.14s; }
+.b-act:hover { color: var(--text); border-color: var(--text); }
+.b-act.del:hover { color: #c0392b; border-color: #c0392b; }
+
+/* ── WORD PILLS (below open card) ── */
+.word-pills {
+  position: absolute;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  justify-content: center;
+  width: 340px;
+  transform: translateX(-50%);
+  padding-top: 10px;
+  pointer-events: none; user-select: none; z-index: 26;
+  opacity: 0; transition: opacity 0.2s ease;
+}
+.word-pills.show { opacity: 1; }
+.word-pill {
+  font-family: 'DM Mono', monospace; font-style: italic; font-size: 0.74rem;
+  color: #1a4a7a;
+  background: #ddeeff;
+  border: 1px solid #b8d4f0;
+  border-radius: 20px; padding: 4px 12px;
+  white-space: nowrap;
+}
+
+/* ── PRIORITY DOTS ── */
+.priority-row { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.p-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--surface);
+  cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+  font-family: "DM Mono", monospace; font-size: 0.65rem; color: var(--muted);
+}
+.p-dot.selected { background: var(--text); border-color: var(--text); color: #fff; }
+.p-dot:hover:not(.selected) { border-color: var(--text); color: var(--text); }
+
+/* ── MODAL ── */
+#modal-overlay { position: fixed; inset: 0; background: rgba(247,246,243,0.85); backdrop-filter: blur(8px); z-index: 700; display: none; align-items: center; justify-content: center; }
+#modal-overlay.open { display: flex; }
+#modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 26px 28px; width: 440px; max-width: 94vw; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+#modal h2 { font-size: 0.95rem; font-weight: 500; margin-bottom: 18px; }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-family: 'DM Mono', monospace; font-size: 0.57rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+.field input, .field textarea, .field select { width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.84rem; padding: 8px 11px; outline: none; transition: border-color 0.15s; -webkit-appearance: none; appearance: none; }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--text); }
+.field textarea { min-height: 70px; resize: vertical; }
+.field input[type="file"] { font-family: 'DM Mono', monospace; font-size: 0.62rem; padding: 7px 10px; cursor: pointer; }
+
+#img-preview { margin-top: 7px; }
+#img-preview img { width: 100%; height: 76px; object-fit: cover; border-radius: 8px; }
+
+.fw-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+.fw-tag { font-family: 'DM Mono', monospace; font-size: 0.58rem; padding: 3px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.fw-tag button { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.7rem; }
+.fw-tag button:hover { color: #c0392b; }
+.fw-row { display: flex; gap: 7px; }
+.fw-row input { flex: 1; }
+
+.modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* colour picker row */
+.colour-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.colour-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 3px solid transparent; transition: border-color 0.15s;
+}
+.colour-swatch.selected { border-color: var(--text); }
+
+/* ── WORKSHEET MODAL ── */
+#ws-modal-overlay { position: fixed; inset: 0; background: rgba(247,246,243,0.85); backdrop-filter: blur(8px); z-index: 800; display: none; align-items: center; justify-content: center; }
+#ws-modal-overlay.open { display: flex; }
+#ws-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 26px 28px; width: 360px; max-width: 94vw; box-shadow: var(--shadow-lg); }
+#ws-modal h2 { font-size: 0.95rem; font-weight: 500; margin-bottom: 18px; }
+
+/* ── HINT ── */
+#hint { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.05em; color: var(--muted); pointer-events: none; opacity: 0.55; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="bar">
+  <button class="btn" onclick="doExport()">Export</button>
+  <button class="btn" onclick="document.getElementById('imp').click()">Import</button>
+  <input type="file" id="imp" accept=".json" style="display:none" onchange="doImport(event)">
+  <span id="save-indicator" style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;margin-right:4px;transition:color 0.3s;"></span>
+  <button class="btn primary" onclick="openEventModal(null)">+ Add event</button>
+</div>
+
+<!-- WORKSHEET TABS -->
+<div id="tabs-bar">
+  <!-- tabs injected by JS -->
+  <button id="tab-add" onclick="openWsModal(null)" title="New worksheet">+</button>
+</div>
+
+<!-- VIEWPORT -->
+<div id="vp">
+  <div id="world">
+    <div id="tl"></div>
+  </div>
+</div>
+
+<div id="hint">scroll or drag to travel through time</div>
+
+<!-- EVENT MODAL -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h2 id="mh">New event</h2>
+    <div class="field">
+      <label>Date</label>
+      <input id="f-date" placeholder="1938-11-09  ·  1938-11  ·  1938  ·  44 BC">
+    </div>
+    <div class="field">
+      <label>Title</label>
+      <input id="f-title" placeholder="Event name">
+    </div>
+    <div class="field">
+      <label>Worksheet</label>
+      <select id="f-ws"></select>
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="f-cat">
+        <option value="other">Other</option>
+        <option value="war">War / Conflict</option>
+        <option value="politics">Politics / Power</option>
+        <option value="culture">Culture / Society</option>
+        <option value="science">Science / Discovery</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Priority (1 = minor &nbsp;·&nbsp; 5 = major)</label>
+      <div class="priority-row" id="priority-row"></div>
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea id="f-desc" placeholder="Short description…"></textarea>
+    </div>
+    <div class="field">
+      <label>Image (local file)</label>
+      <input type="file" id="f-img" accept="image/*">
+      <div id="img-preview"></div>
+    </div>
+    <div class="field">
+      <label>Mind map words</label>
+      <div class="fw-tags" id="fw-tags"></div>
+      <div class="fw-row">
+        <input id="fw-inp" placeholder="e.g. SA=Sturmabteilung" onkeydown="if(event.key==='Enter'){event.preventDefault();addFW()}">
+        <button class="btn" onclick="addFW()">Add</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeEventModal()">Cancel</button>
+      <button class="btn primary" onclick="saveEvent()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- WORKSHEET MODAL -->
+<div id="ws-modal-overlay">
+  <div id="ws-modal">
+    <h2 id="wsmh">New worksheet</h2>
+    <div class="field">
+      <label>Name</label>
+      <input id="ws-name" placeholder="e.g. World War II">
+    </div>
+    <div class="field">
+      <label>Colour</label>
+      <div class="colour-row" id="colour-row"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn danger" id="ws-delete-btn" onclick="deleteWorksheet()" style="margin-right:auto;display:none">Delete</button>
+      <button class="btn" onclick="closeWsModal()">Cancel</button>
+      <button class="btn primary" onclick="saveWorksheet()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════
+var PPY        = 40;
+var YEAR_START = -3000;
+var YEAR_END   = 2200;
+var PAD        = 600;
+var WORLD_W    = PAD * 2 + (YEAR_END - YEAR_START) * PPY;
+var BUBBLE_D   = 80;
+var BUBBLE_GAP = 18;
+var CARD_W     = 300;
+var MM_RADIUS  = 0; // computed dynamically to fit screen
+
+var PALETTE = [
+  '#c0392b','#e67e22','#f1c40f','#27ae60','#16a085',
+  '#2980b9','#8e44ad','#2c3e50','#7f8c8d','#d35400'
+];
+
+function yearToX(y) { return PAD + (y - YEAR_START) * PPY; }
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+var worksheets   = [];   // [{id, name, colour}]
+var events       = [];   // [{id, wsId, date, title, category, description, imageData, floatingWords}]
+var activeWsId   = null;
+var expandedId   = null;
+var editingId    = null;  // event
+var editingWsId  = null;  // worksheet
+var pendingFW    = [];
+var pendingPriority = 3;
+var pendingImg   = null;
+var pendingColour = PALETTE[0];
+var scrollX      = 0;
+
+var vp    = document.getElementById('vp');
+var world = document.getElementById('world');
+
+// ═══════════════════════════════════════════
+//  DATE PARSING
+// ═══════════════════════════════════════════
+function parseDate(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  var bc = /bc$/i.test(str);
+  var clean = str.replace(/\s*bc\s*/i,'').trim();
+  var parts = clean.split(/[-\/\s]+/);
+  var y = parseInt(parts[0], 10);
+  if (isNaN(y)) return null;
+  if (bc) y = -y;
+  var mo = parts[1] ? parseInt(parts[1], 10) : 0;
+  var dy = parts[2] ? parseInt(parts[2], 10) : 0;
+  var precision = dy ? 'day' : mo ? 'month' : 'year';
+  var frac = 0;
+  if (precision === 'year')  frac = 0.5;
+  if (precision === 'month') frac = (mo - 1 + 0.5) / 12;
+  if (precision === 'day')   frac = (mo - 1) / 12 + (dy - 1) / 365;
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var label = bc ? Math.abs(y)+' BC' : String(y);
+  if (mo) label = MN[mo-1]+' '+label;
+  if (dy) label = dy+' '+label;
+  return { wx: yearToX(y + frac), label: label, precision: precision };
+}
+
+// ═══════════════════════════════════════════
+//  WORLD BUILD
+// ═══════════════════════════════════════════
+function buildWorld() {
+  world.style.width  = WORLD_W + 'px';
+  world.style.height = vp.clientHeight + 'px';
+  document.getElementById('tl').style.width = WORLD_W + 'px';
+  document.querySelectorAll('.ym').forEach(function(e){ e.remove(); });
+  for (var y = Math.ceil(YEAR_START/100)*100; y <= YEAR_END; y += 100) {
+    var el = document.createElement('div');
+    el.className = 'ym';
+    el.style.left = yearToX(y) + 'px';
+    el.innerHTML = '<div class="ym-tick"></div><div class="ym-lbl">'+(y<0?Math.abs(y)+' BC':y)+'</div>';
+    world.appendChild(el);
+  }
+}
+
+function initScroll() {
+  scrollX = yearToX(1900) - vp.clientWidth / 2;
+  applyScroll();
+}
+
+function applyScroll() {
+  scrollX = Math.max(0, Math.min(scrollX, WORLD_W - vp.clientWidth));
+  world.style.transform = 'translateX('+(-scrollX)+'px)';
+}
+
+// ═══════════════════════════════════════════
+//  PAN / SCROLL
+// ═══════════════════════════════════════════
+var dragging=false, dragX0, dragS0;
+vp.addEventListener('mousedown', function(e){
+  if (e.target.closest('.bubble')||e.target.closest('#modal-overlay')||e.target.closest('#ws-modal-overlay')) return;
+  dragging=true; dragX0=e.clientX; dragS0=scrollX;
+});
+window.addEventListener('mousemove', function(e){ if(!dragging) return; scrollX=dragS0-(e.clientX-dragX0); applyScroll(); });
+window.addEventListener('mouseup',   function(){ dragging=false; });
+vp.addEventListener('wheel', function(e){ e.preventDefault(); scrollX+=e.deltaY+e.deltaX; applyScroll(); }, {passive:false});
+var tX0,tS0;
+vp.addEventListener('touchstart', function(e){ if(e.touches.length===1){tX0=e.touches[0].clientX;tS0=scrollX;} },{passive:true});
+vp.addEventListener('touchmove',  function(e){ if(e.touches.length===1){scrollX=tS0-(e.touches[0].clientX-tX0);applyScroll();} },{passive:true});
+
+// ═══════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════
+function renderAll() {
+  document.querySelectorAll('.bubble,.word-pills').forEach(function(el){el.remove();});
+
+  var vpH  = vp.clientHeight;
+  var vpW  = vp.clientWidth;
+  var midY = vpH / 2;
+
+  // filter events to active worksheet
+  var visibleEvents = activeWsId
+    ? events.filter(function(ev){ return ev.wsId === activeWsId; })
+    : events;
+
+  // parse + sort
+  var items = [];
+  visibleEvents.forEach(function(ev){
+    var p = parseDate(ev.date);
+    if (p) { var prio=ev.priority||3; var bsz=44+(prio-1)*14; items.push({ev:ev,p:p,bsz:bsz}); }
+  });
+  items.sort(function(a,b){ return a.p.wx - b.p.wx; });
+
+  // ── Layout: keep exact scale unless overlap forces a push ──────────────────
+  // Every bubble starts at its true date position.
+  // Forward pass: if two bubbles would overlap, push the right one just enough
+  // to clear. We never pull anything leftward, so the scale is always correct
+  // when there is room, and compresses only when truly needed.
+  // The open card is treated as CARD_W wide centred on its position.
+
+  var HALF_EX = CARD_W / 2;
+
+  var openIdx = -1;
+  items.forEach(function(item, i){ if (expandedId === item.ev.id) openIdx = i; });
+
+  function halfW(i) { return (openIdx === i) ? HALF_EX : items[i].bsz / 2; }
+
+  var pos = items.map(function(item){ return item.p.wx; });
+
+  // Single forward pass: push right only when overlap detected
+  for (var i = 1; i < items.length; i++) {
+    var need = pos[i-1] + halfW(i-1) + BUBBLE_GAP + halfW(i);
+    if (pos[i] < need) pos[i] = need;
+  }
+
+  var dispXs = pos;
+
+  items.forEach(function(item, i){
+    var ev     = item.ev;
+    var p      = item.p;
+    var dispX  = dispXs[i];
+    var isOpen = expandedId === ev.id;
+
+    var ws = worksheets.find(function(w){ return w.id === ev.wsId; });
+    var wsColour = ws ? ws.colour : null;
+
+    // ── bubble element
+    var bub = document.createElement('div');
+    bub.className = 'bubble type-'+p.precision+(isOpen?' open':'');
+    var prio = ev.priority || 3;
+    var bubSize = 44 + (prio - 1) * 14; // p1=44 p2=58 p3=72 p4=86 p5=100
+    if (!isOpen) {
+      bub.style.width  = bubSize + 'px';
+      bub.style.height = bubSize + 'px';
+    }
+    if (wsColour && !isOpen) {
+      bub.style.borderColor = wsColour;
+      bub.style.borderWidth = '3px';
+    }
+    bub.dataset.id = ev.id;
+    bub.style.left = dispX + 'px';
+
+    if (isOpen) {
+      var cat    = ev.category || 'other';
+      var imgH   = ev.imageData   ? '<img class="b-img" src="'+ev.imageData+'" alt="">' : '';
+      var dscH   = ev.description ? '<div class="b-desc">'+ev.description+'</div>' : '';
+      var stripe = wsColour ? '<div class="b-ws-stripe" style="background:'+wsColour+'"></div>' : '';
+      bub.innerHTML =
+        '<div class="b-date-mini">'+p.label+'</div>'+
+        '<div class="b-content">'+
+          stripe+
+          '<span class="b-cat cat-'+cat+'">'+cat+'</span>'+
+          '<div class="b-title">'+ev.title+'</div>'+
+          imgH+dscH+
+          '<div class="b-actions">'+
+            '<button class="b-act" onclick="openEventModal(\''+ev.id+'\');event.stopPropagation()">Edit</button>'+
+            '<button class="b-act del" onclick="deleteEvent(\''+ev.id+'\');event.stopPropagation()">Delete</button>'+
+          '</div>'+
+        '</div>';
+    } else {
+      bub.innerHTML = '<div class="b-date-mini">'+p.label+'</div>';
+      bub.addEventListener('click', function(e){
+        e.stopPropagation();
+        expandedId = ev.id;
+        renderAll();
+      });
+    }
+
+    world.appendChild(bub);
+
+    // ── Word pills below open card ──────────────────────────────────────────
+    if (!isOpen) return;
+    var words = ev.floatingWords || [];
+    if (!words.length) return;
+
+    (function(capBub, capWords, capX, capMidY){
+      requestAnimationFrame(function(){
+        var cardBottom = capMidY + capBub.offsetHeight / 2;
+        var pills = document.createElement('div');
+        pills.className = 'word-pills';
+        pills.style.left = capX + 'px';
+        pills.style.top  = (cardBottom + 10) + 'px';
+        capWords.forEach(function(word){
+          var pill = document.createElement('div');
+          pill.className = 'word-pill';
+          pill.textContent = word;
+          pills.appendChild(pill);
+        });
+        world.appendChild(pills);
+        setTimeout(function(){ pills.classList.add('show'); }, 30);
+      });
+    })(bub, words, dispX, midY);
+  });
+}
+
+document.addEventListener('click', function(e){
+  if (expandedId && !e.target.closest('.bubble') && !e.target.closest('#modal-overlay') && !e.target.closest('#ws-modal-overlay')) {
+    expandedId = null;
+    renderAll();
+  }
+});
+
+// ═══════════════════════════════════════════
+//  WORKSHEET TABS
+// ═══════════════════════════════════════════
+function renderTabs() {
+  document.querySelectorAll('.ws-tab').forEach(function(el){el.remove();});
+  var bar  = document.getElementById('tabs-bar');
+  var addBtn = document.getElementById('tab-add');
+
+  // "All" tab
+  var allTab = document.createElement('div');
+  allTab.className = 'ws-tab' + (activeWsId === null ? ' active' : '');
+  allTab.innerHTML = '<span class="ws-name">All</span>';
+  allTab.addEventListener('click', function(){
+    activeWsId = null; expandedId = null;
+    renderTabs(); renderAll();
+  });
+  bar.insertBefore(allTab, addBtn);
+
+  worksheets.forEach(function(ws){
+    var tab = document.createElement('div');
+    tab.className = 'ws-tab' + (activeWsId === ws.id ? ' active' : '');
+    tab.innerHTML = '<div class="ws-dot" style="background:'+ws.colour+'"></div><span class="ws-name">'+ws.name+'</span>';
+    tab.addEventListener('click', function(e){
+      if (e.detail === 2) { openWsModal(ws.id); return; } // double-click to edit
+      activeWsId = ws.id; expandedId = null;
+      renderTabs(); renderAll();
+    });
+    bar.insertBefore(tab, addBtn);
+  });
+}
+
+// ═══════════════════════════════════════════
+//  WORKSHEET MODAL
+// ═══════════════════════════════════════════
+function renderSwatches() {
+  var row = document.getElementById('colour-row');
+  row.innerHTML = '';
+  PALETTE.forEach(function(c){
+    var s = document.createElement('div');
+    s.className = 'colour-swatch' + (pendingColour===c?' selected':'');
+    s.style.background = c;
+    s.addEventListener('click', function(){
+      pendingColour = c;
+      renderSwatches();
+    });
+    row.appendChild(s);
+  });
+}
+
+function openWsModal(id) {
+  editingWsId = id;
+  if (id) {
+    var ws = worksheets.find(function(w){ return w.id===id; });
+    if (!ws) return;
+    document.getElementById('wsmh').textContent = 'Edit worksheet';
+    document.getElementById('ws-name').value = ws.name;
+    pendingColour = ws.colour;
+    document.getElementById('ws-delete-btn').style.display = 'block';
+  } else {
+    document.getElementById('wsmh').textContent = 'New worksheet';
+    document.getElementById('ws-name').value = '';
+    pendingColour = PALETTE[worksheets.length % PALETTE.length];
+    document.getElementById('ws-delete-btn').style.display = 'none';
+  }
+  renderSwatches();
+  document.getElementById('ws-modal-overlay').classList.add('open');
+}
+
+function closeWsModal() {
+  document.getElementById('ws-modal-overlay').classList.remove('open');
+}
+
+function saveWorksheet() {
+  var name = document.getElementById('ws-name').value.trim();
+  if (!name) { alert('Please enter a name.'); return; }
+  if (editingWsId) {
+    var ws = worksheets.find(function(w){ return w.id===editingWsId; });
+    if (ws) { ws.name=name; ws.colour=pendingColour; }
+  } else {
+    var newWs = { id: 'ws'+Date.now(), name: name, colour: pendingColour };
+    worksheets.push(newWs);
+    activeWsId = newWs.id;
+  }
+  persist(); renderTabs(); renderAll(); closeWsModal();
+}
+
+function deleteWorksheet() {
+  if (!editingWsId) return;
+  var ws = worksheets.find(function(w){ return w.id===editingWsId; });
+  if (!ws) return;
+  if (!confirm('Delete worksheet "'+ws.name+'"? Events in it will not be deleted.')) return;
+  worksheets = worksheets.filter(function(w){ return w.id!==editingWsId; });
+  if (activeWsId === editingWsId) activeWsId = null;
+  persist(); renderTabs(); renderAll(); closeWsModal();
+}
+
+document.getElementById('ws-modal-overlay').addEventListener('click', function(e){
+  if (e.target===document.getElementById('ws-modal-overlay')) closeWsModal();
+});
+
+// ═══════════════════════════════════════════
+//  EVENT MODAL
+// ═══════════════════════════════════════════
+function populateWsSelect() {
+  var sel = document.getElementById('f-ws');
+  sel.innerHTML = '';
+  worksheets.forEach(function(ws){
+    var opt = document.createElement('option');
+    opt.value = ws.id; opt.textContent = ws.name;
+    sel.appendChild(opt);
+  });
+  if (activeWsId) sel.value = activeWsId;
+}
+
+function openEventModal(id) {
+  editingId  = id;
+  pendingFW  = [];
+  pendingImg = null;
+  populateWsSelect();
+
+  if (id) {
+    var ev = events.find(function(e){ return e.id===id; });
+    if (!ev) return;
+    document.getElementById('mh').textContent   = 'Edit event';
+    document.getElementById('f-date').value     = ev.date;
+    document.getElementById('f-title').value    = ev.title;
+    document.getElementById('f-ws').value       = ev.wsId || '';
+    document.getElementById('f-cat').value      = ev.category || 'other';
+    document.getElementById('f-desc').value     = ev.description || '';
+    pendingFW  = (ev.floatingWords||[]).slice();
+    pendingImg = ev.imageData || null;
+    document.getElementById('img-preview').innerHTML = pendingImg ? '<img src="'+pendingImg+'">' : '';
+  } else {
+    document.getElementById('mh').textContent = 'New event';
+    ['f-date','f-title','f-desc'].forEach(function(i){ document.getElementById(i).value=''; });
+    document.getElementById('f-cat').value = 'other';
+    pendingPriority = 3;
+    document.getElementById('f-img').value = '';
+    document.getElementById('img-preview').innerHTML = '';
+  }
+
+  renderPriorityDots();
+  renderFWTags();
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeEventModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+document.getElementById('modal-overlay').addEventListener('click', function(e){
+  if (e.target===document.getElementById('modal-overlay')) closeEventModal();
+});
+
+document.getElementById('f-img').addEventListener('change', function(e){
+  var f=e.target.files[0]; if(!f) return;
+  var r=new FileReader();
+  r.onload=function(ev){ pendingImg=ev.target.result; document.getElementById('img-preview').innerHTML='<img src="'+pendingImg+'">'; };
+  r.readAsDataURL(f);
+});
+
+function renderPriorityDots() {
+  var row = document.getElementById('priority-row');
+  row.innerHTML = '';
+  for (var p = 1; p <= 5; p++) {
+    (function(pv){
+      var d = document.createElement('div');
+      d.className = 'p-dot' + (pendingPriority === pv ? ' selected' : '');
+      d.textContent = pv;
+      d.addEventListener('click', function(){ pendingPriority = pv; renderPriorityDots(); });
+      row.appendChild(d);
+    })(p);
+  }
+}
+
+function renderFWTags() {
+  var c=document.getElementById('fw-tags'); c.innerHTML='';
+  pendingFW.forEach(function(w,i){
+    var t=document.createElement('div'); t.className='fw-tag';
+    t.innerHTML='<span>'+w+'</span><button onclick="pendingFW.splice('+i+',1);renderFWTags()">✕</button>';
+    c.appendChild(t);
+  });
+}
+
+function addFW() {
+  var inp=document.getElementById('fw-inp'), v=inp.value.trim(); if(!v) return;
+  pendingFW.push(v); inp.value=''; renderFWTags();
+}
+
+function saveEvent() {
+  var date =document.getElementById('f-date').value.trim();
+  var title=document.getElementById('f-title').value.trim();
+  if (!date||!title) { alert('Date and title are required.'); return; }
+  if (!parseDate(date)) { alert('Could not parse date.\nExamples: 1938-11-09 · 1938-11 · 1938 · 44 BC'); return; }
+
+  var ev = {
+    id:           editingId||('e'+Date.now()),
+    wsId:         document.getElementById('f-ws').value,
+    date:         date, title: title,
+    category:     document.getElementById('f-cat').value,
+    priority:     pendingPriority,
+    description:  document.getElementById('f-desc').value.trim(),
+    imageData:    pendingImg,
+    floatingWords: pendingFW.slice()
+  };
+
+  if (editingId) {
+    var idx=events.findIndex(function(e){ return e.id===editingId; });
+    if (idx>-1) events[idx]=ev;
+  } else { events.push(ev); }
+
+  persist(); closeEventModal(); renderAll();
+}
+
+function deleteEvent(id) {
+  if (!confirm('Delete this event?')) return;
+  events=events.filter(function(e){ return e.id!==id; });
+  if (expandedId===id) expandedId=null;
+  persist(); renderAll();
+}
+
+// ═══════════════════════════════════════════
+//  PERSISTENCE — n:point cloud sync
+// ═══════════════════════════════════════════
+var NPOINT_URL = 'https://api.npoint.io/02c6de2867fd41d4a2d7';
+var saveTimer  = null;
+
+// Debounced save — waits 1.2s after last change before writing
+function persist() {
+  // Immediately cache to localStorage as fallback
+  try {
+    var slim = events.map(function(ev){
+      return Object.assign({}, ev, {imageData: ev.imageData ? '__IMG__' : null});
+    });
+    localStorage.setItem('tl4_ws', JSON.stringify(worksheets));
+    localStorage.setItem('tl4_ev', JSON.stringify(slim));
+    events.forEach(function(ev){
+      if (!ev.imageData) return;
+      try { localStorage.setItem('tl4_img_'+ev.id, ev.imageData); } catch(e){}
+    });
+  } catch(e){}
+
+  // Debounce the network write
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(function(){ pushToCloud(); }, 1200);
+}
+
+function pushToCloud() {
+  // Images can be large — store them only in localStorage, save rest to cloud
+  var slim = events.map(function(ev){
+    return Object.assign({}, ev, {imageData: ev.imageData ? '__IMG__' : null});
+  });
+  var payload = { worksheets: worksheets, events: slim };
+
+  setSaveIndicator('saving');
+  fetch(NPOINT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    setSaveIndicator('saved');
+  })
+  .catch(function(err){
+    console.warn('Cloud save failed:', err);
+    setSaveIndicator('error');
+  });
+}
+
+function loadData() {
+  // Show loading state
+  setSaveIndicator('loading');
+
+  fetch(NPOINT_URL)
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d && !Array.isArray(d) && (d.worksheets || d.events)) {
+      worksheets = d.worksheets || [];
+      var arr    = d.events    || [];
+      events = arr.map(function(ev){
+        // Restore images from localStorage if available
+        if (ev.imageData === '__IMG__') {
+          ev.imageData = localStorage.getItem('tl4_img_'+ev.id) || null;
+        }
+        return ev;
+      });
+    } else if (Array.isArray(d)) {
+      events = d; worksheets = [];
+    }
+    setSaveIndicator('');
+    renderTabs();
+    renderAll();
+  })
+  .catch(function(err){
+    console.warn('Cloud load failed, falling back to localStorage:', err);
+    loadFromLocal();
+    setSaveIndicator('offline');
+    renderTabs();
+    renderAll();
+  });
+}
+
+function loadFromLocal() {
+  try {
+    var ws = localStorage.getItem('tl4_ws');
+    if (ws) worksheets = JSON.parse(ws) || [];
+  } catch(e){}
+  try {
+    var raw = localStorage.getItem('tl4_ev');
+    if (!raw) return;
+    var arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    events = arr.map(function(ev){
+      if (ev.imageData === '__IMG__') ev.imageData = localStorage.getItem('tl4_img_'+ev.id) || null;
+      return ev;
+    });
+  } catch(e){}
+}
+
+// Save indicator in top bar
+function setSaveIndicator(state) {
+  var el = document.getElementById('save-indicator');
+  if (!el) return;
+  var labels = { saving: '↑ saving…', saved: '✓ saved', error: '✕ save failed', loading: 'loading…', offline: 'offline mode', '': '' };
+  var colors = { saving: '#8a8780', saved: '#27ae60', error: '#c0392b', loading: '#8a8780', offline: '#e67e22', '': '' };
+  el.textContent  = labels[state] || '';
+  el.style.color  = colors[state] || '';
+}
+
+function doExport() {
+  var data = { worksheets: worksheets, events: events };
+  var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'timeline-backup.json'; a.click();
+}
+
+function doImport(e) {
+  var f = e.target.files[0]; if (!f) return;
+  var r = new FileReader();
+  r.onload = function(ev){
+    try {
+      var d = JSON.parse(ev.target.result);
+      if (Array.isArray(d)) {
+        if (!confirm('Replace all events?')) return;
+        events = d; worksheets = [];
+      } else {
+        if (!confirm('Replace all data?')) return;
+        worksheets = d.worksheets || []; events = d.events || [];
+      }
+      activeWsId = null; expandedId = null;
+      persist(); renderTabs(); renderAll();
+    } catch(err){ alert('Invalid file.'); }
+  };
+  r.readAsText(f);
+}
+
+// ═══════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════
+buildWorld();
+initScroll();
+loadData(); // async — calls renderTabs() and renderAll() internally when done
+
+window.addEventListener('resize', function(){ buildWorld(); applyScroll(); renderAll(); });
+</script>
+</body>
+</html>
